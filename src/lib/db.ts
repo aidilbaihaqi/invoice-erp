@@ -2,6 +2,12 @@ import { supabase, Customer, Item, Invoice, InvoiceItem, Quotation, QuotationIte
 
 const isMock = import.meta.env.VITE_SUPABASE_URL === 'https://example.supabase.co' || !import.meta.env.VITE_SUPABASE_URL;
 
+// Helper to get current user ID
+const getCurrentUserId = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  return user?.id;
+};
+
 // LocalStorage keys
 const STORAGE_KEYS = {
   CUSTOMERS: 'bolt_customers',
@@ -103,7 +109,10 @@ export const db = {
         localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
         return newCustomer;
       }
-      const { data, error } = await supabase.from('customers').insert(customer).select().single();
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error('Not authenticated');
+      
+      const { data, error } = await supabase.from('customers').insert({ ...customer, user_id: userId }).select().single();
       if (error) throw error;
       return data;
     },
@@ -148,7 +157,10 @@ export const db = {
         localStorage.setItem(STORAGE_KEYS.ITEMS, JSON.stringify(items));
         return newItem;
       }
-      const { data, error } = await supabase.from('items').insert(item).select().single();
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error('Not authenticated');
+      
+      const { data, error } = await supabase.from('items').insert({ ...item, user_id: userId }).select().single();
       if (error) throw error;
       return data;
     },
@@ -232,9 +244,12 @@ export const db = {
         return { data: newInvoice, error: null };
       }
       
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error('Not authenticated');
+      
       const { data: invoiceData, error: invoiceError } = await supabase
         .from('invoices')
-        .insert(invoice)
+        .insert({ ...invoice, user_id: userId })
         .select()
         .single();
 
@@ -253,7 +268,7 @@ export const db = {
       if (!itemsError) {
         for (const item of items) {
            // This is a simplified approach. In production, use RPC.
-           const { data: product } = await supabase.from('items').select('id, stock').eq('name', item.item_name).single();
+           const { data: product } = await supabase.from('items').select('id, stock').eq('name', item.item_name).eq('user_id', userId).single();
            if (product) {
              await supabase.from('items').update({ stock: (product.stock || 0) - item.quantity }).eq('id', product.id);
            }
@@ -436,9 +451,12 @@ export const db = {
         return { data: newQuotation, error: null };
       }
 
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error('Not authenticated');
+
       const { data: quotationData, error: quotationError } = await supabase
         .from('quotations')
-        .insert(quotation)
+        .insert({ ...quotation, user_id: userId })
         .select()
         .single();
 
@@ -578,9 +596,12 @@ export const db = {
         return { data: newPO, error: null };
       }
 
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error('Not authenticated');
+
       const { data: poData, error: poError } = await supabase
         .from('purchase_orders')
-        .insert(po)
+        .insert({ ...po, user_id: userId })
         .select()
         .single();
 
@@ -712,10 +733,11 @@ export const db = {
       if (!error) {
         if (oldStatus !== 'completed' && status === 'completed') {
            // Add stock logic for Supabase
+           const userId = await getCurrentUserId();
            const { data: items } = await supabase.from('purchase_order_items').select('*').eq('po_id', id);
-           if (items) {
+           if (items && userId) {
              for (const item of items) {
-               const { data: product } = await supabase.from('items').select('id, stock').eq('name', item.item_name).single();
+               const { data: product } = await supabase.from('items').select('id, stock').eq('name', item.item_name).eq('user_id', userId).single();
                if (product) {
                  await supabase.from('items').update({ stock: (product.stock || 0) + item.quantity }).eq('id', product.id);
                }
@@ -724,10 +746,11 @@ export const db = {
         }
         else if (oldStatus === 'completed' && status !== 'completed') {
            // Revert stock logic for Supabase
+           const userId = await getCurrentUserId();
            const { data: items } = await supabase.from('purchase_order_items').select('*').eq('po_id', id);
-           if (items) {
+           if (items && userId) {
              for (const item of items) {
-               const { data: product } = await supabase.from('items').select('id, stock').eq('name', item.item_name).single();
+               const { data: product } = await supabase.from('items').select('id, stock').eq('name', item.item_name).eq('user_id', userId).single();
                if (product) {
                  await supabase.from('items').update({ stock: (product.stock || 0) - item.quantity }).eq('id', product.id);
                }

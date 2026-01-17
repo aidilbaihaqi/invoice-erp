@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Login from './components/Login';
+import { auth, AuthUser } from './lib/auth';
 import InvoiceForm from './components/InvoiceForm';
 import InvoiceList from './components/InvoiceList';
 import QuotationForm from './components/QuotationForm';
@@ -22,7 +23,8 @@ function App() {
   type EditingPO = (PurchaseOrder & { id: string } & { customer?: { name?: string } }) | null;
   type EditingInvoice = (Invoice & { id: string } & { customer?: { name?: string } }) | null;
 
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<EditingInvoice>(null);
@@ -32,8 +34,48 @@ function App() {
   const [editingPO, setEditingPO] = useState<EditingPO>(null);
   const [poInitialItems, setPoInitialItems] = useState<PurchaseOrderItem[]>([]);
 
-  if (!isAuthenticated) {
-    return <Login onLogin={() => setIsAuthenticated(true)} />;
+  // Check for existing session on mount
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const session = await auth.getSession();
+        if (session) {
+          const currentUser = await auth.getCurrentUser();
+          setUser(currentUser);
+        }
+      } catch (error) {
+        console.error('Session check failed:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkSession();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = auth.onAuthStateChange((user) => {
+      setUser(user);
+      setLoading(false);
+    });
+
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login onLogin={() => {}} />;
   }
 
   const handleNavigate = (page: Page) => {
@@ -46,9 +88,14 @@ function App() {
     setEditingPO(null);
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentPage('dashboard');
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      setUser(null);
+      setCurrentPage('dashboard');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   const handleRestock = (item: Item) => {
